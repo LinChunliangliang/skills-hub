@@ -240,10 +240,20 @@ pub fn list_skills(store: &SkillStore, cfg: &PrivateSourceConfig) -> Result<Vec<
         let stored_skill_id =
             store.get_setting(&skill_id_key(&cfg.repo, &path)).unwrap_or(None);
 
-        let install_status = match &stored_sha {
-            None => "not_installed".to_string(),
-            Some(prev) if prev == &sha => "installed".to_string(),
-            _ => "update_available".to_string(),
+        // Verify the skill record still exists; if deleted, treat as not installed.
+        let skill_exists = stored_skill_id
+            .as_deref()
+            .and_then(|id| store.get_skill_by_id(id).ok().flatten())
+            .is_some();
+
+        let install_status = if !skill_exists {
+            "not_installed".to_string()
+        } else {
+            match &stored_sha {
+                None => "not_installed".to_string(),
+                Some(prev) if prev == &sha => "installed".to_string(),
+                _ => "update_available".to_string(),
+            }
         };
 
         result.push(PrivateSkillDto {
@@ -395,6 +405,40 @@ pub fn update_skill<R: tauri::Runtime>(
     Ok(ImportSkillResult { name, skill_id })
 }
 
+/// Reverse-lookup: given a skill_id, find the Gogs file path stored in settings.
+/// Handles both new-style records (source_type="private", source_ref=gogs_path)
+/// and old-style records (source_type="local", source_ref=deleted_temp_dir).
+fn find_gogs_path_for_skill_id(store: &SkillStore, skill_id: &str) -> Result<String> {
+    // New-style: source_ref already holds the Gogs path.
+    if let Ok(Some(rec)) = store.get_skill_by_id(skill_id) {
+        if rec.source_type == "private" {
+            if let Some(ref p) = rec.source_ref {
+                if !p.is_empty() {
+                    return Ok(p.clone());
+                }
+            }
+        }
+    }
+    // Old-style: reverse-lookup via settings key "private_skill_id:{repo}/{path}" = skill_id.
+    let key = store
+        .find_setting_key_by_prefix_and_value(SKILL_ID_PREFIX, skill_id)?
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "无法找到此 Skill 对应的私有仓库路径，请在「探索 → 内部」页面重新导入。"
+            )
+        })?;
+    // key = "private_skill_id:{repo}/{gogs_path}" — strip prefix and repo prefix.
+    let without_prefix = key.strip_prefix(SKILL_ID_PREFIX).unwrap_or(&key);
+    // without_prefix = "{repo}/{gogs_path}", repo itself contains one '/'.
+    // We need to strip "owner/repo/" to get the gogs_path.
+    let gogs_path = without_prefix
+        .splitn(3, '/')
+        .nth(2)
+        .ok_or_else(|| anyhow::anyhow!("malformed skill_id settings key: {}", key))?
+        .to_string();
+    Ok(gogs_path)
+}
+
 /// Update a private skill identified by its `skill_id` in the managed skills list.
 /// This is called from the general "Update" button on the My Skills card.
 /// It looks up the Gogs file path from the skill record's `source_ref`, fetches the
@@ -404,19 +448,7 @@ pub fn update_private_skill_by_skill_id<R: tauri::Runtime>(
     store: &SkillStore,
     skill_id: &str,
 ) -> Result<ImportSkillResult> {
-    let record = store
-        .get_skill_by_id(skill_id)?
-        .ok_or_else(|| anyhow::anyhow!("skill not found"))?;
-
-    let gogs_path = record
-        .source_ref
-        .as_deref()
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "private skill is missing its Gogs path — please update from the Internal tab"
-            )
-        })?
-        .to_string();
+    let gogs_path = find_gogs_path_for_skill_id(store, skill_id)?;
 
     let cfg = load_config(store)?
         .ok_or_else(|| anyhow::anyhow!("private source not configured"))?;

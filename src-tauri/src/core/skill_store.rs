@@ -192,6 +192,20 @@ impl SkillStore {
         })
     }
 
+    pub fn find_setting_key_by_prefix_and_value(
+        &self,
+        prefix: &str,
+        value: &str,
+    ) -> Result<Option<String>> {
+        self.with_conn(|conn| {
+            let pattern = format!("{}%", prefix);
+            let mut stmt =
+                conn.prepare("SELECT key FROM settings WHERE key LIKE ?1 AND value = ?2")?;
+            let mut rows = stmt.query(params![pattern, value])?;
+            Ok(rows.next()?.map(|row| row.get::<_, String>(0)).transpose()?)
+        })
+    }
+
     pub fn set_setting(&self, key: &str, value: &str) -> Result<()> {
         self.with_conn(|conn| {
             conn.execute(

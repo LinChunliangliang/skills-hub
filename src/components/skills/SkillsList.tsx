@@ -50,6 +50,18 @@ const SkillsList = ({
 }: SkillsListProps) => {
   return (
     <div className="skills-list">
+      <div className="skills-list-header">
+        <button
+          className="btn btn-secondary btn-sm"
+          type="button"
+          onClick={onReviewImport}
+          disabled={loading}
+        >
+          <HardDriveDownload size={14} />
+          {t('scanLocalSkills')}
+        </button>
+      </div>
+
       {plan && plan.total_skills_found > 0 ? (
         <div className="discovered-banner">
           <div className="banner-left">
@@ -77,16 +89,6 @@ const SkillsList = ({
       {visibleSkills.length === 0 ? (
         <div className="empty">
           <div>{t('skillsEmpty')}</div>
-          <button
-            className="btn btn-secondary btn-sm"
-            type="button"
-            onClick={onReviewImport}
-            disabled={loading}
-            style={{ marginTop: 12 }}
-          >
-            <HardDriveDownload size={14} />
-            {t('scanLocalSkills')}
-          </button>
         </div>
       ) : (
         <>

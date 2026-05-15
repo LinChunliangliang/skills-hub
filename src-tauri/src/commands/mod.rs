@@ -29,8 +29,8 @@ use crate::core::sync_engine::{
     copy_dir_recursive, sync_dir_for_tool_with_overwrite, sync_dir_hybrid, SyncMode,
 };
 use crate::core::tool_adapters::{
-    adapter_by_key, adapters_sharing_project_skills_dir, is_tool_installed, resolve_default_path,
-    resolve_project_path, supports_project_scope,
+    adapter_by_key, adapters_sharing_project_skills_dir, default_tool_adapters, is_tool_installed,
+    resolve_default_path, resolve_project_path, supports_project_scope,
 };
 use uuid::Uuid;
 
@@ -771,17 +771,26 @@ pub async fn update_managed_skill(
     let store = store.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         // Dispatch private skills to the private-repo update path.
-        if let Ok(Some(ref rec)) = store.get_skill_by_id(&skillId) {
-            if rec.source_type == "private" {
-                let res = private_repo::update_private_skill_by_skill_id(&app, &store, &skillId)?;
-                return Ok(UpdateResultDto {
-                    skill_id: res.skill_id,
-                    name: res.name,
-                    content_hash: None,
-                    source_revision: None,
-                    updated_targets: Vec::new(),
-                });
-            }
+        // Handles both new records (source_type="private") and old records
+        // (source_type="local" with a deleted temp dir as source_ref).
+        let is_private = store.get_skill_by_id(&skillId).ok().flatten().map(|rec| {
+            rec.source_type == "private"
+                || (rec.source_type == "local"
+                    && rec
+                        .source_ref
+                        .as_deref()
+                        .map(|p| p.contains("skills-hub-private"))
+                        .unwrap_or(false))
+        }).unwrap_or(false);
+        if is_private {
+            let res = private_repo::update_private_skill_by_skill_id(&app, &store, &skillId)?;
+            return Ok(UpdateResultDto {
+                skill_id: res.skill_id,
+                name: res.name,
+                content_hash: None,
+                source_revision: None,
+                updated_targets: Vec::new(),
+            });
         }
         let res = update_managed_skill_from_source(&app, &store, &skillId)?;
         Ok::<_, anyhow::Error>(UpdateResultDto {
@@ -1367,10 +1376,59 @@ pub async fn import_private_skills(
     tauri::async_runtime::spawn_blocking(move || {
         let cfg = private_repo::load_config(&store)?
             .ok_or_else(|| anyhow::anyhow!("private source not configured"))?;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+        let adapters = default_tool_adapters();
         let mut imported: Vec<String> = Vec::new();
         for item in items {
             let res = private_repo::import_skill(&app, &store, &cfg, &item.path, &item.sha)
                 .with_context(|| format!("import {}", item.path))?;
+
+            // Auto-sync to every installed tool.
+            let central = std::path::PathBuf::from(
+                store
+                    .get_skill_by_id(&res.skill_id)?
+                    .map(|r| r.central_path)
+                    .unwrap_or_default(),
+            );
+            for adapter in &adapters {
+                if !is_tool_installed(adapter).unwrap_or(false) {
+                    continue;
+                }
+                let tool_key = adapter.id.as_key().to_string();
+                let Ok(tool_root) = resolve_default_path(adapter) else { continue };
+                let target = tool_root.join(&res.name);
+                let sync_result = sync_dir_for_tool_with_overwrite(
+                    &tool_key,
+                    &central,
+                    &target,
+                    false,
+                );
+                if let Ok(sr) = sync_result {
+                    let mode_str = match sr.mode_used {
+                        SyncMode::Auto => "auto",
+                        SyncMode::Symlink => "symlink",
+                        SyncMode::Junction => "junction",
+                        SyncMode::Copy => "copy",
+                    }
+                    .to_string();
+                    let _ = store.upsert_skill_target(&SkillTargetRecord {
+                        id: Uuid::new_v4().to_string(),
+                        skill_id: res.skill_id.clone(),
+                        tool: tool_key,
+                        scope: "global".to_string(),
+                        project_path: None,
+                        target_path: sr.target_path.to_string_lossy().to_string(),
+                        mode: mode_str,
+                        status: "ok".to_string(),
+                        last_error: None,
+                        synced_at: Some(now),
+                    });
+                }
+            }
+
             imported.push(res.name);
         }
         Ok::<_, anyhow::Error>(imported)
