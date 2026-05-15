@@ -1,5 +1,7 @@
 # Skills Hub (Tauri Desktop)
 
+> **Based on [qufei1993/skills-hub](https://github.com/qufei1993/skills-hub)** — This is a fork with additional features, including private Gogs/Gitea repository integration for internal team skill management. All original work and credit goes to the upstream project. Licensed under MIT.
+
 A cross-platform desktop app (Tauri + React) to manage Agent Skills in one place and sync them to multiple AI coding tools’ global or project-level skills directories (prefer symlink/junction, fallback to copy) — “Install once, sync everywhere”.
 
 ## Documentation

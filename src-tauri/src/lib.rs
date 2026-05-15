@@ -107,7 +107,13 @@ pub fn run() {
             commands::search_skills_online,
             commands::list_skill_files,
             commands::read_skill_file,
-            commands::cancel_current_operation
+            commands::cancel_current_operation,
+            commands::get_private_source_config,
+            commands::save_private_source_config,
+            commands::test_private_source,
+            commands::list_private_skills,
+            commands::import_private_skills,
+            commands::update_private_skill
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

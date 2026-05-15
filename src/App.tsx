@@ -30,6 +30,8 @@ import type {
   ManagedSkill,
   OnboardingPlan,
   OnlineSkillDto,
+  PrivateSkillDto,
+  PrivateSourceConfig,
   TagWithCountDto,
   ToolOption,
   ToolStatusDto,
@@ -420,6 +422,13 @@ function App() {
   }, [isTauri, invokeTauri])
 
   useEffect(() => {
+    if (!isTauri) return
+    invokeTauri<PrivateSourceConfig | null>('get_private_source_config')
+      .then((cfg) => { if (cfg) setPrivateSourceConfig(cfg) })
+      .catch(() => {})
+  }, [isTauri, invokeTauri])
+
+  useEffect(() => {
     if (isTauri) {
       void loadPlan()
     }
@@ -641,6 +650,10 @@ function App() {
   const [gitCacheCleanupDays, setGitCacheCleanupDays] = useState<number>(30)
   const [gitCacheTtlSecs, setGitCacheTtlSecs] = useState<number>(60)
   const [githubToken, setGithubToken] = useState<string>('')
+  const [privateSourceConfig, setPrivateSourceConfig] = useState<PrivateSourceConfig | null>(null)
+  const [privateSkills, setPrivateSkills] = useState<PrivateSkillDto[]>([])
+  const [privateSkillsLoading, setPrivateSkillsLoading] = useState(false)
+  const [selectedPrivateSkills, setSelectedPrivateSkills] = useState<Record<string, boolean>>({})
   const handlePickStoragePath = useCallback(async () => {
     try {
       if (!isTauri) {
@@ -706,6 +719,78 @@ function App() {
     },
     [invokeTauri, isTauri],
   )
+  const handleSavePrivateSource = useCallback(
+    async (cfg: PrivateSourceConfig) => {
+      await invokeTauri('save_private_source_config', { config: cfg })
+      setPrivateSourceConfig(cfg)
+    },
+    [invokeTauri],
+  )
+
+  const handleTestPrivateSource = useCallback(
+    async (cfg: PrivateSourceConfig): Promise<string> => {
+      return invokeTauri<string>('test_private_source', { config: cfg })
+    },
+    [invokeTauri],
+  )
+
+  const loadPrivateSkills = useCallback(async () => {
+    if (!isTauri) return
+    setPrivateSkillsLoading(true)
+    try {
+      const result = await invokeTauri<PrivateSkillDto[]>('list_private_skills')
+      setPrivateSkills(result)
+      setSelectedPrivateSkills({})
+    } catch (err) {
+      toast.error(String(err), { duration: 3000 })
+    } finally {
+      setPrivateSkillsLoading(false)
+    }
+  }, [invokeTauri, isTauri])
+
+  const handleTogglePrivateSkill = useCallback((path: string) => {
+    setSelectedPrivateSkills((prev) => ({ ...prev, [path]: !prev[path] }))
+  }, [])
+
+  const handleImportPrivateSkills = useCallback(async () => {
+    const items = Object.entries(selectedPrivateSkills)
+      .filter(([, checked]) => checked)
+      .map(([path]) => {
+        const skill = privateSkills.find((s) => s.path === path)
+        return skill ? { path, sha: skill.sha } : null
+      })
+      .filter(Boolean) as { path: string; sha: string }[]
+
+    if (items.length === 0) return
+    setLoading(true)
+    try {
+      const names = await invokeTauri<string[]>('import_private_skills', { items })
+      toast.success(t('internalImportSuccess', { count: names.length }))
+      setSelectedPrivateSkills({})
+      await Promise.all([loadManagedSkills(), loadPrivateSkills()])
+    } catch (err) {
+      toast.error(formatErrorMessage(String(err)), { duration: 3200 })
+    } finally {
+      setLoading(false)
+    }
+  }, [selectedPrivateSkills, privateSkills, invokeTauri, loadManagedSkills, loadPrivateSkills, t, formatErrorMessage])
+
+  const handleUpdatePrivateSkill = useCallback(
+    async (path: string, sha: string) => {
+      setLoading(true)
+      try {
+        const name = await invokeTauri<string>('update_private_skill', { path, sha })
+        toast.success(t('internalUpdateSuccess', { name }))
+        await Promise.all([loadManagedSkills(), loadPrivateSkills()])
+      } catch (err) {
+        toast.error(formatErrorMessage(String(err)), { duration: 3200 })
+      } finally {
+        setLoading(false)
+      }
+    },
+    [invokeTauri, loadManagedSkills, loadPrivateSkills, t, formatErrorMessage],
+  )
+
   const handleClearGitCacheNow = useCallback(async () => {
     if (!isTauri) {
       setError(t('errors.notTauri'))
@@ -768,12 +853,15 @@ function App() {
       setActiveView(view)
       if (view === 'explore') {
         loadFeaturedSkills()
+        if (privateSourceConfig) {
+          void loadPrivateSkills()
+        }
       }
       if (view === 'myskills') {
         setDetailSkill(null)
       }
     },
-    [loadFeaturedSkills],
+    [loadFeaturedSkills, loadPrivateSkills, privateSourceConfig],
   )
 
   const handleOpenDetail = useCallback((skill: ManagedSkill) => {
@@ -2511,6 +2599,9 @@ function App() {
             onClearGitCacheNow={handleClearGitCacheNow}
             githubToken={githubToken}
             onGithubTokenChange={handleGithubTokenChange}
+            privateSourceConfig={privateSourceConfig}
+            onSavePrivateSource={handleSavePrivateSource}
+            onTestPrivateSource={handleTestPrivateSource}
             onBack={handleCloseSettings}
             t={t}
           />
@@ -2523,9 +2614,17 @@ function App() {
             searchLoading={searchLoading}
             managedSkills={managedSkills}
             loading={loading}
+            privateSkills={privateSkills}
+            privateSkillsLoading={privateSkillsLoading}
+            privateSourceConfigured={Boolean(privateSourceConfig?.url)}
+            selectedPrivateSkills={selectedPrivateSkills}
             onExploreFilterChange={handleExploreFilterChange}
             onInstallSkill={handleExploreInstall}
             onOpenManualAdd={handleOpenAdd}
+            onRefreshPrivateSkills={loadPrivateSkills}
+            onTogglePrivateSkill={handleTogglePrivateSkill}
+            onImportPrivateSkills={handleImportPrivateSkills}
+            onUpdatePrivateSkill={handleUpdatePrivateSkill}
             t={t}
           />
         )}

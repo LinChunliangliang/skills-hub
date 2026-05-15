@@ -1,4 +1,5 @@
 pub mod cache_cleanup;
+pub mod private_repo;
 pub mod cancel_token;
 pub mod central_repo;
 pub mod content_hash;

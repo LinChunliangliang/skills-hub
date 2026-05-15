@@ -1238,6 +1238,154 @@ pub fn cancel_current_operation(cancel: State<'_, Arc<CancelToken>>) -> Result<(
     Ok(())
 }
 
+// ── Private source commands ───────────────────────────────────────────────────
+
+use crate::core::private_repo::{self, PrivateSourceConfig};
+
+#[derive(Debug, Serialize, serde::Deserialize)]
+pub struct PrivateSourceConfigDto {
+    pub url: String,
+    pub token: String,
+    pub repo: String,
+    pub skills_path: String,
+}
+
+impl From<PrivateSourceConfig> for PrivateSourceConfigDto {
+    fn from(c: PrivateSourceConfig) -> Self {
+        Self { url: c.url, token: c.token, repo: c.repo, skills_path: c.skills_path }
+    }
+}
+
+impl From<PrivateSourceConfigDto> for PrivateSourceConfig {
+    fn from(d: PrivateSourceConfigDto) -> Self {
+        Self { url: d.url, token: d.token, repo: d.repo, skills_path: d.skills_path }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct PrivateSkillDto {
+    pub name: String,
+    pub description: Option<String>,
+    pub path: String,
+    pub sha: String,
+    pub install_status: String,
+    pub skill_id: Option<String>,
+}
+
+impl From<private_repo::PrivateSkillDto> for PrivateSkillDto {
+    fn from(s: private_repo::PrivateSkillDto) -> Self {
+        Self {
+            name: s.name,
+            description: s.description,
+            path: s.path,
+            sha: s.sha,
+            install_status: s.install_status,
+            skill_id: s.skill_id,
+        }
+    }
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct ImportPrivateSkillItem {
+    pub path: String,
+    pub sha: String,
+}
+
+#[tauri::command]
+pub async fn get_private_source_config(
+    store: State<'_, SkillStore>,
+) -> Result<Option<PrivateSourceConfigDto>, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        Ok::<_, anyhow::Error>(private_repo::load_config(&store)?.map(PrivateSourceConfigDto::from))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(format_anyhow_error)
+}
+
+#[tauri::command]
+pub async fn save_private_source_config(
+    store: State<'_, SkillStore>,
+    config: PrivateSourceConfigDto,
+) -> Result<(), String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        private_repo::save_config(&store, &config.into())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(format_anyhow_error)
+}
+
+#[tauri::command]
+pub async fn test_private_source(config: PrivateSourceConfigDto) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        private_repo::test_connection(&config.into())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(format_anyhow_error)
+}
+
+#[tauri::command]
+pub async fn list_private_skills(
+    store: State<'_, SkillStore>,
+) -> Result<Vec<PrivateSkillDto>, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let cfg = private_repo::load_config(&store)?
+            .ok_or_else(|| anyhow::anyhow!("private source not configured"))?;
+        let skills = private_repo::list_skills(&store, &cfg)?;
+        Ok::<_, anyhow::Error>(skills.into_iter().map(PrivateSkillDto::from).collect())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(format_anyhow_error)
+}
+
+#[tauri::command]
+pub async fn import_private_skills(
+    app: tauri::AppHandle,
+    store: State<'_, SkillStore>,
+    items: Vec<ImportPrivateSkillItem>,
+) -> Result<Vec<String>, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let cfg = private_repo::load_config(&store)?
+            .ok_or_else(|| anyhow::anyhow!("private source not configured"))?;
+        let mut imported: Vec<String> = Vec::new();
+        for item in items {
+            let res = private_repo::import_skill(&app, &store, &cfg, &item.path, &item.sha)
+                .with_context(|| format!("import {}", item.path))?;
+            imported.push(res.name);
+        }
+        Ok::<_, anyhow::Error>(imported)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(format_anyhow_error)
+}
+
+#[tauri::command]
+pub async fn update_private_skill(
+    app: tauri::AppHandle,
+    store: State<'_, SkillStore>,
+    path: String,
+    sha: String,
+) -> Result<String, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let cfg = private_repo::load_config(&store)?
+            .ok_or_else(|| anyhow::anyhow!("private source not configured"))?;
+        let res = private_repo::update_skill(&app, &store, &cfg, &path, &sha)?;
+        Ok::<_, anyhow::Error>(res.name)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(format_anyhow_error)
+}
+
 #[cfg(test)]
 #[path = "tests/commands.rs"]
 mod tests;

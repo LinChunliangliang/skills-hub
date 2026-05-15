@@ -121,3 +121,19 @@ export type SkillFileEntry = {
   path: string
   size: number
 }
+
+export type PrivateSourceConfig = {
+  url: string
+  token: string
+  repo: string
+  skills_path: string
+}
+
+export type PrivateSkillDto = {
+  name: string
+  description: string | null
+  path: string
+  sha: string
+  install_status: 'not_installed' | 'installed' | 'update_available'
+  skill_id: string | null
+}

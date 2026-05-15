@@ -2,8 +2,25 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft } from 'lucide-react'
 import type { TFunction } from 'i18next'
 import type { Update } from '@tauri-apps/plugin-updater'
+import type { PrivateSourceConfig } from './types'
 
 type UpdateStatus = 'idle' | 'checking' | 'up-to-date' | 'available' | 'downloading' | 'done' | 'error'
+
+function buildFolderUrl(cfg: PrivateSourceConfig | null): string {
+  if (!cfg?.url) return ''
+  return `${cfg.url}/${cfg.repo}`
+}
+
+function parseGogsUrl(raw: string): { url: string; repo: string; skills_path: string } | null {
+  try {
+    const u = new URL(raw.trim())
+    const parts = u.pathname.split('/').filter(Boolean)
+    if (parts.length < 2) return null
+    return { url: u.origin, repo: `${parts[0]}/${parts[1]}`, skills_path: '' }
+  } catch {
+    return null
+  }
+}
 
 type SettingsPageProps = {
   isTauri: boolean
@@ -13,6 +30,7 @@ type SettingsPageProps = {
   gitCacheTtlSecs: number
   themePreference: 'system' | 'light' | 'dark'
   githubToken: string
+  privateSourceConfig: PrivateSourceConfig | null
   onPickStoragePath: () => void
   onToggleLanguage: () => void
   onThemeChange: (nextTheme: 'system' | 'light' | 'dark') => void
@@ -20,6 +38,8 @@ type SettingsPageProps = {
   onGitCacheTtlSecsChange: (nextSecs: number) => void
   onClearGitCacheNow: () => void
   onGithubTokenChange: (token: string) => void
+  onSavePrivateSource: (cfg: PrivateSourceConfig) => Promise<void>
+  onTestPrivateSource: (cfg: PrivateSourceConfig) => Promise<string>
   onBack: () => void
   t: TFunction
 }
@@ -39,6 +59,9 @@ const SettingsPage = ({
   onClearGitCacheNow,
   githubToken,
   onGithubTokenChange,
+  privateSourceConfig,
+  onSavePrivateSource,
+  onTestPrivateSource,
   onBack,
   t,
 }: SettingsPageProps) => {
@@ -46,6 +69,49 @@ const SettingsPage = ({
   useEffect(() => {
     setLocalToken(githubToken)
   }, [githubToken])
+
+  const [psFolderUrl, setPsFolderUrl] = useState(() => buildFolderUrl(privateSourceConfig))
+  const [psToken, setPsToken] = useState(privateSourceConfig?.token ?? '')
+  const [psTestMsg, setPsTestMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const [psSaving, setPsSaving] = useState(false)
+  const [psTesting, setPsTesting] = useState(false)
+
+  useEffect(() => {
+    if (privateSourceConfig) {
+      setPsFolderUrl(buildFolderUrl(privateSourceConfig))
+      setPsToken(privateSourceConfig.token)
+    }
+  }, [privateSourceConfig])
+
+  const parsedCfg = parseGogsUrl(psFolderUrl)
+
+  const handleSavePrivateSource = useCallback(async () => {
+    if (!parsedCfg) return
+    setPsSaving(true)
+    setPsTestMsg(null)
+    try {
+      await onSavePrivateSource({ ...parsedCfg, token: psToken })
+      setPsTestMsg({ ok: true, text: t('privateSourceSaved') })
+    } catch (err) {
+      setPsTestMsg({ ok: false, text: String(err) })
+    } finally {
+      setPsSaving(false)
+    }
+  }, [onSavePrivateSource, parsedCfg, psToken, t])
+
+  const handleTestPrivateSource = useCallback(async () => {
+    if (!parsedCfg) return
+    setPsTesting(true)
+    setPsTestMsg(null)
+    try {
+      const user = await onTestPrivateSource({ ...parsedCfg, token: psToken })
+      setPsTestMsg({ ok: true, text: t('privateSourceTestOk', { user }) })
+    } catch (err) {
+      setPsTestMsg({ ok: false, text: t('privateSourceTestFail', { error: String(err) }) })
+    } finally {
+      setPsTesting(false)
+    }
+  }, [onTestPrivateSource, parsedCfg, psToken, t])
 
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>('idle')
   const [updateVersion, setUpdateVersion] = useState<string | null>(null)
@@ -288,6 +354,59 @@ const SettingsPage = ({
             />
           </div>
           <div className="settings-helper">{t('githubTokenHint')}</div>
+        </div>
+
+        <div className="settings-field">
+          <label className="settings-label">{t('privateSource')}</label>
+          <div className="settings-input-row">
+            <input
+              className="settings-input mono"
+              placeholder={t('privateSourceFolderUrlPlaceholder')}
+              value={psFolderUrl}
+              onChange={(e) => { setPsFolderUrl(e.target.value); setPsTestMsg(null) }}
+            />
+          </div>
+          <div className="settings-helper">{t('privateSourceFolderUrl')}</div>
+          {psFolderUrl.trim() && (
+            <div className={`settings-helper ${parsedCfg ? 'settings-update-ok' : 'settings-update-error'}`} style={{ marginTop: 2 }}>
+              {parsedCfg
+                ? t('privateSourceParsed', { url: parsedCfg.url, repo: parsedCfg.repo })
+                : t('privateSourceParseError')}
+            </div>
+          )}
+          <div className="settings-input-row" style={{ marginTop: 8 }}>
+            <input
+              className="settings-input mono"
+              type="password"
+              placeholder={t('privateSourceTokenPlaceholder')}
+              value={psToken}
+              onChange={(e) => setPsToken(e.target.value)}
+            />
+          </div>
+          <div className="settings-helper">{t('privateSourceToken')}</div>
+          <div className="settings-input-row" style={{ marginTop: 8, gap: 8 }}>
+            <button
+              className="btn btn-primary btn-sm"
+              type="button"
+              disabled={psSaving || !parsedCfg}
+              onClick={() => { void handleSavePrivateSource() }}
+            >
+              {t('privateSourceSave')}
+            </button>
+            <button
+              className="btn btn-secondary btn-sm"
+              type="button"
+              disabled={psTesting || !parsedCfg || !psToken.trim()}
+              onClick={() => { void handleTestPrivateSource() }}
+            >
+              {t('privateSourceTest')}
+            </button>
+          </div>
+          {psTestMsg && (
+            <div className={`settings-helper ${psTestMsg.ok ? 'settings-update-ok' : 'settings-update-error'}`} style={{ marginTop: 4 }}>
+              {psTestMsg.text}
+            </div>
+          )}
         </div>
 
         <div className="settings-field settings-update-section">
