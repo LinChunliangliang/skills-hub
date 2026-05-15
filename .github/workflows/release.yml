@@ -131,7 +131,7 @@ jobs:
           fs.appendFileSync(envFile, `TAURI_SIGNING_PRIVATE_KEY=${keyB64}\n`);
 
           const pwd = (process.env.RAW_PASSWORD || '').trim();
-          if (pwd) fs.appendFileSync(envFile, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD=${pwd}\n`);
+          fs.appendFileSync(envFile, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD=${pwd}\n`);
           NODE
 
       - name: Import Apple certificate (codesign)
