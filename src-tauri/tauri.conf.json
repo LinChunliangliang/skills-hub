@@ -1,6 +1,6 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Skills Hub",
+  "productName": "Szlb Skills Hub",
   "version": "0.7.0",
   "identifier": "com.qufei1993.skillshub",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Skills Hub",
+        "title": "Szlb Skills Hub",
         "width": 960,
         "height": 680,
         "resizable": true,
