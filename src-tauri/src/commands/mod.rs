@@ -770,6 +770,19 @@ pub async fn update_managed_skill(
 ) -> Result<UpdateResultDto, String> {
     let store = store.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
+        // Dispatch private skills to the private-repo update path.
+        if let Ok(Some(ref rec)) = store.get_skill_by_id(&skillId) {
+            if rec.source_type == "private" {
+                let res = private_repo::update_private_skill_by_skill_id(&app, &store, &skillId)?;
+                return Ok(UpdateResultDto {
+                    skill_id: res.skill_id,
+                    name: res.name,
+                    content_hash: None,
+                    source_revision: None,
+                    updated_targets: Vec::new(),
+                });
+            }
+        }
         let res = update_managed_skill_from_source(&app, &store, &skillId)?;
         Ok::<_, anyhow::Error>(UpdateResultDto {
             skill_id: res.skill_id,

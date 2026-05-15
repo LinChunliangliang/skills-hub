@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use base64::Engine as _;
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use uuid::Uuid;
 
 use super::content_hash::hash_dir;
@@ -285,6 +285,14 @@ pub fn import_skill<R: tauri::Runtime>(
     store.set_setting(&sha_key(&cfg.repo, path), sha)?;
     store.set_setting(&skill_id_key(&cfg.repo, path), &install.skill_id)?;
 
+    // Patch the record so the general update mechanism knows this is a private skill
+    // and can locate the Gogs file path (source_ref) rather than the deleted temp dir.
+    if let Ok(Some(mut rec)) = store.get_skill_by_id(&install.skill_id) {
+        rec.source_type = "private".to_string();
+        rec.source_ref = Some(path.to_string());
+        let _ = store.upsert_skill(&rec);
+    }
+
     Ok(ImportSkillResult { name, skill_id: install.skill_id })
 }
 
@@ -385,6 +393,48 @@ pub fn update_skill<R: tauri::Runtime>(
     store.set_setting(&sha_key(&cfg.repo, path), sha)?;
 
     Ok(ImportSkillResult { name, skill_id })
+}
+
+/// Update a private skill identified by its `skill_id` in the managed skills list.
+/// This is called from the general "Update" button on the My Skills card.
+/// It looks up the Gogs file path from the skill record's `source_ref`, fetches the
+/// current SHA from Gogs, then delegates to `update_skill`.
+pub fn update_private_skill_by_skill_id<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    store: &SkillStore,
+    skill_id: &str,
+) -> Result<ImportSkillResult> {
+    let record = store
+        .get_skill_by_id(skill_id)?
+        .ok_or_else(|| anyhow::anyhow!("skill not found"))?;
+
+    let gogs_path = record
+        .source_ref
+        .as_deref()
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "private skill is missing its Gogs path — please update from the Internal tab"
+            )
+        })?
+        .to_string();
+
+    let cfg = load_config(store)?
+        .ok_or_else(|| anyhow::anyhow!("private source not configured"))?;
+
+    let client = make_client(&cfg.token)?;
+    let base = cfg.url.trim_end_matches('/');
+
+    // Get the current SHA by listing the file's parent directory.
+    let parent = gogs_path.rfind('/').map(|i| &gogs_path[..i]).unwrap_or("");
+    let file_name = gogs_path.rsplit('/').next().unwrap_or(gogs_path.as_str());
+    let entries = list_dir(&client, base, &cfg.repo, parent)?;
+    let current_sha = entries
+        .iter()
+        .find(|e| e.name == file_name && e.kind == "file")
+        .map(|e| e.sha.clone())
+        .ok_or_else(|| anyhow::anyhow!("file not found in private repository: {}", gogs_path))?;
+
+    update_skill(app, store, &cfg, &gogs_path, &current_sha)
 }
 
 fn now_ms() -> i64 {

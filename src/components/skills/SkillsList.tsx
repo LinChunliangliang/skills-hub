@@ -1,5 +1,5 @@
 import { memo } from 'react'
-import { MessageCircle } from 'lucide-react'
+import { HardDriveDownload, MessageCircle } from 'lucide-react'
 import type { TFunction } from 'i18next'
 import type { ManagedSkill, OnboardingPlan, ToolOption } from './types'
 import SkillCard from './SkillCard'
@@ -75,7 +75,19 @@ const SkillsList = ({
       ) : null}
 
       {visibleSkills.length === 0 ? (
-        <div className="empty">{t('skillsEmpty')}</div>
+        <div className="empty">
+          <div>{t('skillsEmpty')}</div>
+          <button
+            className="btn btn-secondary btn-sm"
+            type="button"
+            onClick={onReviewImport}
+            disabled={loading}
+            style={{ marginTop: 12 }}
+          >
+            <HardDriveDownload size={14} />
+            {t('scanLocalSkills')}
+          </button>
+        </div>
       ) : (
         <>
           {visibleSkills.map((skill) => (
