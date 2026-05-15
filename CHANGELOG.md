@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-05-15
+
+### Added
+- **Private repository integration**: Browse and import skills from internal Gogs/Gitea repositories directly in the Explore page.
+- **Internal tab**: New "Internal" tab in Explore page to list, select, and import private skills.
+- **Auto-discovery**: Automatically scans the entire repository to find all valid skills without manual path configuration.
+- **SHA-based update detection**: Detects when a private skill has been updated in the remote repository.
+
 ## [0.6.0] - 2026-05-05
 
 ### Added
