@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-05-16
+
+### Added
+- **Scan Local Skills button**: Always-visible button in My Skills to scan tools for unmanaged skills.
+- **Auto-sync on private import**: Importing a private skill now automatically syncs it to all installed tools.
+
+### Fixed
+- **Private skill update**: Clicking Update on a private skill no longer fails with "source path not found". Handles both newly imported and legacy records.
+- **Private skill status after deletion**: Deleted private skills now correctly show as uninstalled in the Internal tab instead of remaining stuck as "installed".
+- **App branding**: Replaced logo and renamed to Szlb Skills Hub.
+
 ## [0.7.0] - 2026-05-15
 
 ### Added
